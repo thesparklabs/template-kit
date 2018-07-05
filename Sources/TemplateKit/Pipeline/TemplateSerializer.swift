@@ -192,6 +192,19 @@ public final class TemplateSerializer {
                 )
                 return serializer.serialize(ast: iterator.body)
             }
+            func renderDictionaryIteration(dkey: String, value: TemplateData, index: Int, count: Int) -> Future<View> {
+                var copy = self.context.data.dictionary ?? [:]
+                copy[key] = .dictionary(["key": .string(dkey), "value": value])
+                copy["index"] = .int(index)
+                copy["isFirst"] = .bool(index == 0)
+                copy["isLast"] = .bool(index == count - 1)
+                let serializer = TemplateSerializer(
+                    renderer: self.renderer,
+                    context: .init(data: .dictionary(copy)),
+                    using: self.container
+                )
+                return serializer.serialize(ast: iterator.body)
+            }
 
             func merge(views: [Future<View>]) -> Future<TemplateData> {
                 return views.map(to: TemplateData.self, on: self.container) { views in
@@ -203,16 +216,22 @@ public final class TemplateSerializer {
                 }
             }
 
-            guard let data = data.array else {
+            let views:[Future<View>]
+
+            if let data = data.dictionary {
+                views = data.enumerated().map { tuple -> Future<View> in
+                    renderDictionaryIteration(dkey: tuple.element.key, value: tuple.element.value, index: tuple.offset, count: data.count)
+                }                
+            } else if let data = data.array {
+                views = data.enumerated().map { (i, item) -> Future<View> in
+                    renderIteration(item: item, index: i, count: data.count)
+                }
+            } else {
                 throw TemplateKitError(
                     identifier: "iteratorData",
-                    reason: "Could not convert iterator data to array.",
+                    reason: "Could not iterate over data.",
                     source: source
                 )
-            }
-
-            let views = data.enumerated().map { (i, item) -> Future<View> in
-                renderIteration(item: item, index: i, count: data.count)
             }
 
             return merge(views: views)
